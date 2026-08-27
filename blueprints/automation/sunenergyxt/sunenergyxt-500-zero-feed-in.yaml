@@ -1,5 +1,5 @@
 blueprint:
-  name: SunEnergyXT 500 Serie - Nulleinspeisung
+  name: SunEnergyXT 500 Pro - Nulleinspeisung mit manueller Zeitschaltung
   description: >
     Nulleinspeise-Regler für SunEnergyXT 500 / 500 Pro mit einem externen Home
     Assistant-Zähler. Die Automatisierung verwendet keine Betriebsmodus- oder
@@ -105,6 +105,88 @@ blueprint:
               step: 1
               unit_of_measurement: W
               mode: box
+
+    manual_loading_setup:
+      name: Manuelle Netz-Ladung
+      icon: mdi:clock-outline
+      description: >
+        Lädt den Speicher während frei definierbarer Zeitfenster aus dem Netz.
+        Die normale Nulleinspeisungsregelung wird währenddessen temporär
+        übersteuert.
+      input:
+        grid_charge_enable:
+          name: Netzladung aktivieren
+          description: Aktiviert die zeitgesteuerte Ladung aus dem Stromnetz.
+          default: false
+          selector:
+            boolean:
+
+        grid_charge_days:
+          name: Wochentage
+          description: An diesen Tagen darf die Netzladung erfolgen.
+          default:
+            - mon
+            - tue
+            - wed
+            - thu
+            - fri
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - label: Montag
+                  value: mon
+                - label: Dienstag
+                  value: tue
+                - label: Mittwoch
+                  value: wed
+                - label: Donnerstag
+                  value: thu
+                - label: Freitag
+                  value: fri
+                - label: Samstag
+                  value: sat
+                - label: Sonntag
+                  value: sun
+
+        grid_charge_start:
+          name: Startzeit
+          description: Beginn des günstigen Tarifzeitraums.
+          default: "10:00:00"
+          selector:
+            time:
+
+        grid_charge_end:
+          name: Endzeit
+          description: Ende des günstigen Tarifzeitraums.
+          default: "16:00:00"
+          selector:
+            time:
+
+        grid_charge_target_soc:
+          name: Ziel-SOC
+          description: Die Netzladung stoppt beim Erreichen dieses Ladezustands.
+          default: 90
+          selector:
+            number:
+              min: 10
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
+              mode: slider
+
+        grid_charge_power_w:
+          name: Netzladeleistung
+          description: Gewünschte Ladeleistung aus dem Stromnetz.
+          default: 2400
+          selector:
+            number:
+              min: 100
+              max: 2400
+              step: 100
+              unit_of_measurement: W
+              mode: slider
 
     meter_setup:
       name: Zähler-Einrichtung
@@ -760,6 +842,12 @@ trigger:
     seconds: "/1"
 
 variables:
+  grid_charge_enable: !input grid_charge_enable
+  grid_charge_days: !input grid_charge_days
+  grid_charge_start: !input grid_charge_start
+  grid_charge_end: !input grid_charge_end
+  grid_charge_target_soc: !input grid_charge_target_soc
+  grid_charge_power_w: !input grid_charge_power_w
   aio_device: !input aio_device
   pro3em_meter_device: !input pro3em_meter_device
   ecotracker_meter_device: !input ecotracker_meter_device
@@ -1694,6 +1782,25 @@ action:
         {% else %}
           {{ 50 }}
         {% endif %}
+      grid_charge_day_match: >-
+        {% set day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
+        {{ day_names[now().weekday()] in (grid_charge_days | default([], true)) }}
+      grid_charge_time_match: >-
+        {% set current = today_at(now().strftime('%H:%M:%S')) %}
+        {% set start = today_at(grid_charge_start) %}
+        {% set end = today_at(grid_charge_end) %}
+        {% if start <= end %}
+          {{ current >= start and current < end }}
+        {% else %}
+          {{ current >= start or current < end }}
+        {% endif %}
+      grid_charge_active: >-
+        {{
+          grid_charge_enable | bool(false)
+          and grid_charge_day_match | bool(false)
+          and grid_charge_time_match | bool(false)
+          and (soc_value | float(0)) < (grid_charge_target_soc | float(100))
+        }}
       current_is_w: >-
         {% if has_is | bool(false) %}
           {{ states(is_entity | trim) | float(0) }}
@@ -1959,9 +2066,13 @@ action:
           {{ raw_grid_port_target_w | float(0) }}
         {% endif %}
       target_gs_w: >-
-        {% set low = effective_gs_min_w | float(-2400) %}
-        {% set high = effective_gs_max_w | float(2400) %}
-        {{ [[unbounded_target_gs_w | float(0), low] | max, high] | min }}
+        {% if grid_charge_active | bool(false) %}
+          {{ -1 * (grid_charge_power_w | float(2400)) }}
+        {% else %}
+          {% set low = effective_gs_min_w | float(-2400) %}
+          {% set high = effective_gs_max_w | float(2400) %}
+          {{ [[unbounded_target_gs_w | float(0), low] | max, high] | min }}
+        {% endif %}
       unclamped_target_is_w: >-
         {% if bypass_only | bool(false) %}
           {{ inverter_rated_w | float(2400) }}
@@ -1971,9 +2082,18 @@ action:
           {{ pre_soc_target_is_w | float(0) }}
         {% endif %}
       target_is_w: >-
-        {% set low = is_entity_min_w | float(0) %}
-        {% set high = [is_entity_max_w | float(inverter_rated_w | float(2400)), inverter_rated_w | float(2400)] | min %}
-        {{ [[unclamped_target_is_w | float(0), low] | max, high] | min }}
+        {% if grid_charge_active | bool(false) %}
+          0
+        {% else %}
+          {% set low = is_entity_min_w | float(0) %}
+          {% set high =
+            [
+              is_entity_max_w | float(inverter_rated_w | float(2400)),
+              inverter_rated_w | float(2400)
+            ] | min
+          %}
+          {{ [[unclamped_target_is_w | float(0), low] | max, high] | min }}
+        {% endif %}
       gs_error_w: >-
         {{ (target_gs_w | float(0)) - (current_gs_w | float(0)) }}
       is_error_w: >-
@@ -2053,10 +2173,23 @@ action:
   - variables:
       next_gs_w: >-
         {% set resolution = [gs_resolution_w | float(1), 1] | max %}
-        {% set rounded = (((stepped_target_gs_w | float(0)) / resolution) | round(0) * resolution) | float(0) %}
-        {% set low = effective_gs_min_w | float(-2400) %}
-        {% set high = effective_gs_max_w | float(2400) %}
-        {{ [[rounded, low] | max, high] | min | round(0) }}
+        {% if grid_charge_active | bool(false) %}
+          {% set requested = -1 * (grid_charge_power_w | float(2400)) %}
+          {% set entity_low = gs_entity_min_w | float(-2400) %}
+          {% set configured_low = gs_min_w | float(-2400) %}
+          {% set charge_low = -1 * (ac_couple_max_charge_power_w | float(2400)) %}
+          {% set low = [entity_low, configured_low, charge_low] | max %}
+          {% set rounded = ((requested / resolution) | round(0) * resolution) | float(0) %}
+          {{ [rounded, low] | max | round(0) }}
+        {% else %}
+          {% set rounded = (
+            ((stepped_target_gs_w | float(0)) / resolution)
+            | round(0) * resolution
+          ) | float(0) %}
+          {% set low = effective_gs_min_w | float(-2400) %}
+          {% set high = effective_gs_max_w | float(2400) %}
+          {{ [[rounded, low] | max, high] | min | round(0) }}
+        {% endif %}
 
   - variables:
       seconds_since_gs_change: >-
@@ -2217,4 +2350,4 @@ action:
             data:
               level: info
               message: >-
-                SunEnergyXT zero feed-in | event=decision | meter={{ normalized_grid_w | float(0) | round(0) }}W | target_grid={{ target_grid_power_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | gs={{ current_gs_w | float(0) | round(0) }}W->{{ next_gs_w | float(0) | round(0) }}W | is={{ current_is_w | float(0) | round(0) }}W->{{ next_is_w | float(0) | round(0) }}W | write_gs={{ should_write_gs | bool(false) }} | write_is={{ should_write_is | bool(false) }} | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }} | bypass={{ bypass_only | bool(false) }}
+                SunEnergyXT zero feed-in | event=decision | grid_charge={{ grid_charge_active }} | meter={{ normalized_grid_w | float(0) | round(0) }}W | target_grid={{ target_grid_power_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | gs={{ current_gs_w | float(0) | round(0) }}W->{{ next_gs_w | float(0) | round(0) }}W | is={{ current_is_w | float(0) | round(0) }}W->{{ next_is_w | float(0) | round(0) }}W | write_gs={{ should_write_gs | bool(false) }} | write_is={{ should_write_is | bool(false) }} | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }} | bypass={{ bypass_only | bool(false) }}
