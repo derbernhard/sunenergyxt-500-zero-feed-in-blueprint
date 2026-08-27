@@ -12,7 +12,7 @@ blueprint:
   domain: automation
   homeassistant:
     min_version: "2024.6.0"
-  source_url: https://github.com/derbernhard/sunenergyxt-500-zero-feed-in-blueprint/edit/main/blueprints/automation/sunenergyxt/sunenergyxt-500-zero-feed-in.yaml
+  source_url: https://github.com/SunEnergyXT/sunenergyxt-500-zero-feed-in-blueprint/blob/main/blueprints/automation/sunenergyxt/sunenergyxt-500-zero-feed-in.yaml
   input:
     required_devices:
       name: SunEnergyXT-Einrichtung
@@ -34,7 +34,7 @@ blueprint:
             device:
               filter:
                 - integration: sunenergyxt
-                
+
         full_battery_mode:
           name: Verhalten bei voller Batterie
           default: follow_load
@@ -186,6 +186,34 @@ blueprint:
               max: 2400
               step: 100
               unit_of_measurement: W
+              mode: slider
+
+        grid_charge_battery_capacity_kwh:
+          name: Batteriekapazität
+          description: >
+            Nutzbare Batteriekapazität für die Berechnung der erforderlichen
+            Netzladezeit.
+          default: 10
+          selector:
+            number:
+              min: 1
+              max: 100
+              step: 0.1
+              unit_of_measurement: kWh
+              mode: box
+
+        grid_charge_efficiency:
+          name: Ladeeffizienz
+          description: >
+            Geschätzte AC-zu-Batterie-Ladeeffizienz. 90 % berücksichtigt
+            Ladeverluste und sorgt für einen etwas früheren Ladestart.
+          default: 90
+          selector:
+            number:
+              min: 50
+              max: 100
+              step: 1
+              unit_of_measurement: "%"
               mode: slider
 
     meter_setup:
@@ -848,6 +876,8 @@ variables:
   grid_charge_end: !input grid_charge_end
   grid_charge_target_soc: !input grid_charge_target_soc
   grid_charge_power_w: !input grid_charge_power_w
+  grid_charge_battery_capacity_kwh: !input grid_charge_battery_capacity_kwh
+  grid_charge_efficiency: !input grid_charge_efficiency
   aio_device: !input aio_device
   pro3em_meter_device: !input pro3em_meter_device
   ecotracker_meter_device: !input ecotracker_meter_device
@@ -1794,12 +1824,38 @@ action:
         {% else %}
           {{ current >= start or current < end }}
         {% endif %}
+      grid_charge_remaining_minutes: >-
+        {% set target = grid_charge_target_soc | float(100) %}
+        {% set soc = soc_value | float(0) %}
+        {% set capacity = grid_charge_battery_capacity_kwh | float(10) %}
+        {% set power = grid_charge_power_w | float(2400) %}
+        {% set efficiency = grid_charge_efficiency | float(90) / 100 %}
+        
+        {% set missing_soc = [target - soc, 0] | max %}
+        {% set missing_kwh = capacity * missing_soc / 100 %}
+        
+        {% if power > 0 and efficiency > 0 %}
+          {{ (missing_kwh / (power / 1000) / efficiency) * 60 }}
+        {% else %}
+          {{ 999999 }}
+        {% endif %}
+      grid_charge_remaining_window_minutes: >-
+        {% set end = today_at(grid_charge_end) %}
+        {% set current = now() %}
+        {{ [((as_timestamp(end) - as_timestamp(current)) / 60), 0] | max }}
+      grid_charge_deadline_reached: >-
+        {{
+          (grid_charge_remaining_minutes | float(999999))
+          >=
+          (grid_charge_remaining_window_minutes | float(0))
+        }}
       grid_charge_active: >-
         {{
           grid_charge_enable | bool(false)
           and grid_charge_day_match | bool(false)
           and grid_charge_time_match | bool(false)
           and (soc_value | float(0)) < (grid_charge_target_soc | float(100))
+          and grid_charge_deadline_reached | bool(false)
         }}
       current_is_w: >-
         {% if has_is | bool(false) %}
