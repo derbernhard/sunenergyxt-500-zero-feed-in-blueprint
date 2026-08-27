@@ -34,7 +34,7 @@ blueprint:
             device:
               filter:
                 - integration: sunenergyxt
-
+                
         full_battery_mode:
           name: Verhalten bei voller Batterie
           default: follow_load
