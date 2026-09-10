@@ -1734,7 +1734,21 @@ action:
                     data:
                       level: warning
                       message: >-
-                        SunEnergyXT Nulleinspeisung | Fail-safe aktiv, Regelrunde beendet | GS-Rücksetzung={{ failsafe_should_reset_gs | bool(false) }} | Grund: {{ failsafe_reason }}
+                        SunEnergyXT Nulleinspeisung | Fail-safe aktiv, Regelrunde beendet |
+                        GS-Rücksetzung={{ failsafe_should_reset_gs | bool(false) }} |
+                        Grund: {{ failsafe_reason }} |
+                        ZÄHLERTYP={{ effective_meter_power_source | trim }} | DIAG:
+                        {%- set diag = {
+                          'GS': gs_entity, 'IS': is_entity, 'GP': gp_entity, 'LOAD': load_entity,
+                          'PV': pv_entity, 'SOC': soc_entity,
+                          'MIN_SOC': min_soc_entity, 'MAX_SOC': max_soc_entity } -%}
+                        {%- for label, ent in diag.items() -%}
+                        {%- set e = ent | string | trim %} {{ label }}=
+                        {%- if e | length == 0 %}[NICHT ERKANNT]
+                        {%- else %}{{ e }}:{{ states(e) }}
+                        {%- endif %};
+                        {%- endfor %}
+
           - stop: >-
               SunEnergyXT Fail-safe: ungültiger Eingang oder veralteter Zählerwert; Sollwerte werden gehalten.
 
