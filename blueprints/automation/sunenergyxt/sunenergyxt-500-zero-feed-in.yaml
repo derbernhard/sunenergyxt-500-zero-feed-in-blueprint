@@ -121,6 +121,52 @@ blueprint:
           selector:
             boolean:
 
+        grid_charge_months:
+          name: Monate
+          description: In diesen Monaten darf die Netzladung erfolgen.
+          default:
+            - 1
+            - 2
+            - 3
+            - 4
+            - 5
+            - 6
+            - 7
+            - 8
+            - 9
+            - 10
+            - 11
+            - 12
+          selector:
+            select:
+              multiple: true
+              mode: list
+              options:
+                - label: Januar
+                  value: 1
+                - label: Februar
+                  value: 2
+                - label: März
+                  value: 3
+                - label: April
+                  value: 4
+                - label: Mai
+                  value: 5
+                - label: Juni
+                  value: 6
+                - label: Juli
+                  value: 7
+                - label: August
+                  value: 8
+                - label: September
+                  value: 9
+                - label: Oktober
+                  value: 10
+                - label: November
+                  value: 11
+                - label: Dezember
+                  value: 12
+                    
         grid_charge_days:
           name: Wochentage
           description: An diesen Tagen darf die Netzladung erfolgen.
@@ -884,6 +930,7 @@ trigger:
 
 variables:
   grid_charge_enable: !input grid_charge_enable
+  grid_charge_months: !input grid_charge_months
   grid_charge_days: !input grid_charge_days
   grid_charge_start: !input grid_charge_start
   grid_charge_end: !input grid_charge_end
@@ -1826,6 +1873,12 @@ action:
         {% else %}
           {{ 50 }}
         {% endif %}
+      grid_charge_month_match: >
+        {{
+          now().month|string
+          in
+          (grid_charge_months | map('string') | list)
+        }}
       grid_charge_day_match: >-
         {% set day_names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
         {{ day_names[now().weekday()] in (grid_charge_days | default([], true)) }}
@@ -1877,6 +1930,7 @@ action:
       grid_charge_active: >-
         {{
           grid_charge_enable | bool(false)
+          and grid_charge_month_match | bool(false)
           and grid_charge_day_match | bool(false)
           and grid_charge_time_match | bool(false)
           and (soc_value | float(0)) < (grid_charge_target_soc | float(100))
