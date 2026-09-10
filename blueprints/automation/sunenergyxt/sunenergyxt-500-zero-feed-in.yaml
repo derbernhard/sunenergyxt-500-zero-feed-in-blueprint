@@ -1511,7 +1511,7 @@ action:
           {% set import_age = as_timestamp(now()) - as_timestamp(states[meter_import_entity | trim].last_reported | default(states[meter_import_entity | trim].last_updated), 0) %}
           {% set export_age = as_timestamp(now()) - as_timestamp(states[meter_export_entity | trim].last_reported | default(states[meter_export_entity | trim].last_updated), 0) %}
           {{ import_age >= 0 and import_age <= limit
-             and export_age >= 0 and export_age <= limit }}
+             or export_age >= 0 and export_age <= limit }}
         {% elif source in failsafe_phase_pair_sources %}
           {% set ages = [
             as_timestamp(now()) - as_timestamp(states[meter_l1_import_entity | trim].last_reported | default(states[meter_l1_import_entity | trim].last_updated), 0),
