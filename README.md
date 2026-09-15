@@ -1,41 +1,30 @@
 # SunEnergyXT 500 / 500 Pro Zero Feed-in Blueprint
 
-Home-Assistant-Blueprint für die Nulleinspeisungsregelung eines SunEnergyXT 500 oder 500 Pro mit externem Netzzähler, SOC-Grenzen, Fail-safe-Logik, Diagnoseprotokollierung und optionaler zeitgesteuerter Netzladung mit PV-Vorrang.
+Nulleinspeise-Regler für SunEnergyXT 500 / 500 Pro mit einem externen Home Assistant-Zähler. Die Automatisierung verwendet keine Betriebsmodus- oder Entlademodus-Schalter des Geräts. Wählen Sie den Zählertyp und das SunEnergyXT-Gerät; der Blueprint erkennt gängige HA-/HACS-Zählerformen wie Shelly, BitShake / Tasmota, EcoTracker, vorzeichenbehaftete Gesamtleistung, Dreiphasenleistung sowie Bezug-/Einspeisepaare. Die Automatisierung steuert anschließend den Sollwert Leistung Netzanschluss und den Sollwert max. Wechselrichterleistung mit derselben Topologielogik wie der Simulator.
 
 ## Funktionsumfang
 
-- Automatische Zuordnung der relevanten SunEnergyXT-Entitäten über das ausgewählte Gerät
-- Unterstützung mehrerer Zählertypen und benutzerdefinierter Zählerformeln
-- Dynamische Regelintervalle und begrenzte Sollwertänderungen
-- SOC-Unter- und Obergrenzen mit optional persistenten Halte-Helpern
-- Zeitgesteuerte Netzladung nach Monat, Wochentag, Uhrzeit und Ziel-SOC
-- Bedarfsgerechter Ladebeginn anhand Kapazität, Leistung, Wirkungsgrad und Sicherheitspuffer
-- PV-Vorrang mit konfigurierbarer Sperr- und Freigabeschwelle
-- Fail-safe bei ungültigen oder veralteten Messwerten
-- Mehrstufiges Diagnoseprotokoll
+- Nulleinspeisungsregelung mit externem Home-Assistant-Zähler
+- Automatische Geräte- und Entitätserkennung mit optionalen Überschreibungen
+- Zeitgesteuerte Netzladung nach Monaten, Wochentagen und Uhrzeit
+- Bedarfsgerechter Ladebeginn bis zum Ziel-SOC
+- Aktueller PV-Vorrang mit Sperr-/Freigabehysterese und optionalem Helper
+- Optionale prognosebasierte Reduzierung des Netzladebedarfs
+- Fail-safe- und Diagnosefunktionen
 
 ## Installation
-
-1. Kopiere die Blueprint-Datei nach:
 
 ```text
 /config/blueprints/automation/sunenergyxt/sunenergyxt-500-zero-feed-in.yaml
 ```
 
-2. Lade die Automationen beziehungsweise Blueprints in Home Assistant neu.
-3. Erstelle unter **Einstellungen → Automatisierungen & Szenen → Blueprints** eine neue Automation aus dem Blueprint.
-4. Wähle das SunEnergyXT-Gerät, den passenden Zählertyp und die gewünschten Einstellungen.
+Blueprint-Datei dort ablegen, Blueprints neu laden und eine Automation daraus erstellen.
 
-## PV-Hysterese-Helper
+## PV-Vorrang, Hysterese und Forecast
 
-Für eine echte zustandsbehaftete PV-Hysterese wird ein Umschalt-Helper empfohlen.
+### Helper
 
-1. Öffne **Einstellungen → Geräte & Dienste → Helfer**.
-2. Wähle **Helfer erstellen → Umschalter**.
-3. Verwende beispielsweise den Namen `SunEnergyXT PV-Netzladesperre`.
-4. Wähle den Helper anschließend im Blueprint unter **PV-Vorrang und Hysterese → Optionaler Helper für PV-Netzladesperre** aus.
-
-Beispiel als YAML, falls Helper per YAML verwaltet werden:
+Für die zustandsbehaftete Hysterese einen Umschalt-Helper unter **Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Umschalter** anlegen und im Blueprint auswählen.
 
 ```yaml
 input_boolean:
@@ -44,16 +33,20 @@ input_boolean:
     icon: mdi:solar-power
 ```
 
-### Verhalten der Hysterese
+### Forecast-Sensor
 
-Bei einer Sperrschwelle von 1.000 W und einer Freigabeschwelle von 700 W gilt:
+Der ausgewählte Forecast-Sensor muss als Zustand die **ab jetzt bis zum Ende des Netzladefensters verbleibende PV-Energie in kWh** liefern. Ein Tagesgesamtwert darf nur verwendet werden, wenn bereits erzeugte Energie vorher abgezogen wurde. Optional kann ein zweiter Sensor den erwarteten Hausverbrauch im selben Zeitraum liefern.
 
-- PV-Leistung ab 1.000 W: Netzladung gesperrt, Helper eingeschaltet.
-- PV-Leistung unter 700 W: Netzladung freigegeben, Helper ausgeschaltet.
-- PV-Leistung zwischen 700 und 1.000 W: Der im Helper gespeicherte Zustand bleibt erhalten.
-- Ohne Helper wird der Zwischenbereich vorsichtshalber als gesperrt behandelt.
+Berechnung:
 
-## Konfigurationsreferenz
+```text
+sicherer PV-Überschuss = max(Forecast-PV - erwarteter Hausverbrauch, 0) × (1 - Sicherheitsabschlag)
+verbleibender Netzbedarf = max(fehlende Batterieenergie - sicherer PV-Überschuss, 0)
+```
+
+Wenn Forecast deaktiviert, leer, `unknown` oder `unavailable` ist, arbeitet der Blueprint automatisch ohne Prognose weiter.
+
+## Vollständige Konfigurationsreferenz
 
 ### SunEnergyXT-Einrichtung
 
@@ -63,10 +56,12 @@ Wählen Sie das SunEnergyXT-All-in-one-Gerät und die wichtigsten Benutzereinste
 
 Wählen Sie das SunEnergyXT 500 / 500 Pro Gerät. Der Blueprint sucht automatisch den Sollwert Leistung Netzanschluss, den Sollwert max. Wechselrichterleistung, die Systemleistung am Lastanschluss, die Systemleistung am Netzanschluss, die PV-Gesamteingangsleistung, das System-Speicherlevel und die SOC-Grenzentitäten dieses Geräts.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Kein Standardwert
 
 #### `full_battery_mode`: Verhalten bei voller Batterie
+
+
 
 - **Eingabetyp:** Auswahl: Nach Vollladung Last folgen, Nach Vollladung PV folgen
 - **Standard:** follow_load
@@ -75,54 +70,54 @@ Wählen Sie das SunEnergyXT 500 / 500 Pro Gerät. Der Blueprint sucht automatisc
 
 Maximal erlaubte Netzeinspeiseleistung. Verwenden Sie 800 W für SunEnergyXT 500 und 2400 W für SunEnergyXT 500 Pro, sofern vor Ort kein niedrigerer Grenzwert erforderlich ist.
 
-- **Eingabetyp:** Zahl (0 bis 2400, Schritt 1, W)
+- **Eingabetyp:** Zahl (0 bis 2400, Schritt 1 W)
 - **Standard:** 2400
 
 #### `min_discharge_soc`: System Entladegrenze
 
 Schreibt die System Entladegrenze des ausgewählten SunEnergyXT- Geräts. Die Automatisierung verwendet diesen Wert außerdem als Steuergrenze bei niedrigem SOC.
 
-- **Eingabetyp:** Zahl (1 bis 30, Schritt 1, %)
+- **Eingabetyp:** Zahl (1 bis 30, Schritt 1 %)
 - **Standard:** 10
 
 #### `max_charge_soc`: System Ladegrenze
 
 Schreibt die System Ladegrenze des ausgewählten SunEnergyXT-Geräts. Die Automatisierung verwendet diesen Wert außerdem als Steuergrenze bei voller Batterie.
 
-- **Eingabetyp:** Zahl (70 bis 100, Schritt 1, %)
+- **Eingabetyp:** Zahl (70 bis 100, Schritt 1 %)
 - **Standard:** 100
 
 #### `ac_couple_max_charge_power_w`: Maximale AC-gekoppelte Ladeleistung
 
 Begrenzt die AC-seitige Lade-/Aufnahmeleistung. SunEnergyXT 500 und 500 Pro können hier bis zu 2400 W verwenden, sofern vor Ort kein niedrigerer Grenzwert gilt.
 
-- **Eingabetyp:** Zahl (0 bis 2400, Schritt 1, W)
+- **Eingabetyp:** Zahl (0 bis 2400, Schritt 1 W)
 - **Standard:** 2400
 
 ### Manuelle Netz-Ladung
 
-Lädt den Speicher während frei definierbarer Zeitfenster aus dem Netz. Die normale Nulleinspeisungsregelung wird währenddessen temporär übersteuert. Optional kann die Netzladung bei ausreichender aktueller PV-Leistung gesperrt werden. Eine getrennte Sperr- und Freigabeschwelle bildet eine Hysterese und verhindert häufiges Umschalten bei wechselnder Bewölkung. Für eine echte zustandsbehaftete Hysterese kann optional ein input_boolean-Helper ausgewählt werden.
+Lädt den Speicher während frei definierbarer Zeitfenster aus dem Netz. Die normale Nulleinspeisungsregelung wird währenddessen temporär übersteuert.
 
 #### `grid_charge_enable`: Netzladung aktivieren
 
 Aktiviert die zeitgesteuerte Ladung aus dem Stromnetz.
 
 - **Eingabetyp:** Schalter
-- **Standard:** Deaktiviert
+- **Standard:** False
 
 #### `grid_charge_months`: Monate
 
 In diesen Monaten darf die Netzladung erfolgen.
 
-- **Eingabetyp:** Auswahl, Mehrfachauswahl: Januar, Februar, März, April, Mai, Juni, Juli, August, September, Oktober, November, Dezember
-- **Standard:** 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+- **Eingabetyp:** Auswahl: Januar, Februar, März, April, Mai, Juni, Juli, August, September, Oktober, November, Dezember; Mehrfachauswahl
+- **Standard:** ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
 
 #### `grid_charge_days`: Wochentage
 
 An diesen Tagen darf die Netzladung erfolgen.
 
-- **Eingabetyp:** Auswahl, Mehrfachauswahl: Montag, Dienstag, Mittwoch, Donnerstag, Freitag, Samstag, Sonntag
-- **Standard:** mon, tue, wed, thu, fri
+- **Eingabetyp:** Auswahl: Montag, Dienstag, Mittwoch, Donnerstag, Freitag, Samstag, Sonntag; Mehrfachauswahl
+- **Standard:** ['mon', 'tue', 'wed', 'thu', 'fri']
 
 #### `grid_charge_start`: Startzeit
 
@@ -142,68 +137,103 @@ Ende des günstigen Tarifzeitraums.
 
 Die Netzladung stoppt beim Erreichen dieses Ladezustands.
 
-- **Eingabetyp:** Zahl (10 bis 100, Schritt 1, %)
+- **Eingabetyp:** Zahl (10 bis 100, Schritt 1 %)
 - **Standard:** 90
 
 #### `grid_charge_power_w`: Netzladeleistung
 
 Gewünschte Ladeleistung aus dem Stromnetz.
 
-- **Eingabetyp:** Zahl (100 bis 2400, Schritt 100, W)
+- **Eingabetyp:** Zahl (100 bis 2400, Schritt 100 W)
 - **Standard:** 2400
 
 #### `grid_charge_battery_capacity_kwh`: Batteriekapazität
 
 Nutzbare Batteriekapazität für die Berechnung der benötigten Netzladezeit.
 
-- **Eingabetyp:** Zahl (1 bis 100, Schritt 0.1, kWh)
+- **Eingabetyp:** Zahl (1 bis 100, Schritt 0.1 kWh)
 - **Standard:** 10
 
 #### `grid_charge_efficiency`: Ladeeffizienz
 
 Geschätzte Ladeeffizienz für die Berechnung. 90 % berücksichtigt Ladeverluste und sorgt für einen etwas früheren Ladestart.
 
-- **Eingabetyp:** Zahl (50 bis 100, Schritt 1, %)
+- **Eingabetyp:** Zahl (50 bis 100, Schritt 1 %)
 - **Standard:** 90
 
 #### `grid_charge_safety_margin_min`: Sicherheitspuffer
 
 Zusätzliche Zeitreserve vor dem Ende des günstigen Tarifzeitraums.
 
-- **Eingabetyp:** Zahl (0 bis 60, Schritt 1, min)
+- **Eingabetyp:** Zahl (0 bis 60, Schritt 1 min)
 - **Standard:** 10
 
 ### PV-Vorrang und Hysterese
 
-Diese optionale Funktion verhindert eine unnötige Netzladung, wenn aktuell genügend PV-Leistung vorhanden ist. Die Sperrschwelle schaltet die Netzladung aus; die niedrigere Freigabeschwelle erlaubt sie wieder. Der Abstand zwischen beiden Werten bildet die Hysterese und verhindert häufiges Umschalten bei wechselnder Bewölkung. Für eine echte zustandsbehaftete Hysterese wird ein input_boolean-Helper empfohlen. Erstellen Sie ihn unter Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Umschalter. Empfohlener Name: SunEnergyXT PV-Netzladesperre. Wählen Sie den erstellten Helper danach im Feld "Optionaler Helper für PV-Netzladesperre" aus. Ohne Helper wird der Bereich zwischen Freigabe- und Sperrschwelle vorsichtshalber als gesperrt behandelt.
+Verhindert unnötige Netzladung bei ausreichender aktueller PV-Leistung. Sperr- und Freigabeschwelle bilden eine Hysterese. Für eine echte zustandsbehaftete Hysterese einen input_boolean-Helper unter Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Umschalter anlegen und unten auswählen. Ohne Helper wird der Bereich zwischen beiden Schwellen vorsichtshalber als gesperrt behandelt. Optional kann eine Forecast-Entität mit der erwarteten verbleibenden PV-Energie bis zum Ende des Netzladefensters berücksichtigt werden. Davon wird ein optional erwarteter Hausverbrauch abgezogen und ein Sicherheitsabschlag angewendet. Fehlt ein gültiger Forecast-Wert, verwendet der Blueprint automatisch die bisherige Berechnung ohne Prognose.
 
 #### `grid_charge_pv_priority_enable`: PV-Vorrang für Netzladung aktivieren
 
-Aktiviert die Sperre der manuellen Netzladung bei ausreichender aktueller PV-Leistung. Ist diese Option deaktiviert, beeinflussen die beiden PV-Schwellenwerte die Netzladung nicht.
+Aktiviert die Sperre der manuellen Netzladung bei ausreichender aktueller PV-Leistung.
 
 - **Eingabetyp:** Schalter
-- **Standard:** Aktiviert
+- **Standard:** True
 
 #### `grid_charge_pv_block_threshold_w`: PV-Leistung für Netzlade-Sperre
 
-Erreicht oder überschreitet die aktuelle PV-Leistung diesen Wert, wird die manuelle Netzladung gesperrt und die PV erhält Vorrang. Die Sperre bleibt aktiv, bis die PV-Leistung unter die separate Freigabeschwelle fällt.
+Ab diesem Wert wird die Netzladung gesperrt. Die Sperre bleibt aktiv, bis die PV-Leistung unter die Freigabeschwelle fällt.
 
-- **Eingabetyp:** Zahl (0 bis 2000, Schritt 50, W)
+- **Eingabetyp:** Zahl (0 bis 2000, Schritt 50 W)
 - **Standard:** 1000
 
 #### `grid_charge_pv_release_threshold_w`: PV-Leistung für Freigabe der Netzladung
 
-Fällt die aktuelle PV-Leistung unter diesen Wert, darf die manuelle Netzladung wieder starten. Dieser Wert sollte kleiner als die Sperrschwelle sein. Der Abstand zwischen beiden Werten bildet die Hysterese und verhindert wiederholtes Ein- und Ausschalten bei schwankender PV-Leistung.
+Unter diesem Wert darf die Netzladung wieder starten. Dieser Wert sollte kleiner als die Sperrschwelle sein.
 
-- **Eingabetyp:** Zahl (0 bis 2000, Schritt 50, W)
+- **Eingabetyp:** Zahl (0 bis 2000, Schritt 50 W)
 - **Standard:** 700
 
 #### `grid_charge_pv_block_helper`: Optionaler Helper für PV-Netzladesperre
 
-Optionaler input_boolean-Helper, der den Sperrzustand innerhalb der Hysterese und über Automationsläufe hinweg speichert. Empfohlen für eine exakte Hysterese. Ohne Helper wird der Zwischenbereich zwischen Freigabe- und Sperrschwelle vorsichtshalber als gesperrt behandelt.
+Optionaler input_boolean-Helper für eine echte Hysterese. Erstellen unter Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen → Umschalter. Empfohlener Name: SunEnergyXT PV-Netzladesperre.
 
 - **Eingabetyp:** Entität (input_boolean)
 - **Standard:** Leer / optional
+
+#### `grid_charge_forecast_enable`: PV-Prognose berücksichtigen
+
+Aktiviert die prognosebasierte Reduzierung der benötigten Netzladung. Dafür muss unten eine Sensorentität ausgewählt werden, deren Zustand die noch erwartete PV-Energie bis zum Ende des aktuellen Netzladefensters in kWh enthält. Ist der Sensor leer, unknown oder unavailable, wird ohne Forecast weitergerechnet.
+
+- **Eingabetyp:** Schalter
+- **Standard:** False
+
+#### `grid_charge_forecast_energy_entity`: Verbleibende PV-Prognoseenergie
+
+Sensor mit der ab jetzt bis zum Ende des Netzladefensters erwarteten PV-Energie in kWh. Nicht direkt einen Tagesgesamtwert verwenden, wenn dieser bereits erzeugte Energie enthält, da die Prognose sonst zu hoch angerechnet wird. Geeignet ist ein Forecast- oder Template-Sensor, der den verbleibenden Zeitraum abbildet.
+
+- **Eingabetyp:** Entität (sensor)
+- **Standard:** Leer / optional
+
+#### `grid_charge_forecast_load_energy_entity`: Erwarteter Hausverbrauch bis Ladeende
+
+Optionaler Sensor mit dem erwarteten Hausverbrauch von jetzt bis zum Ende des Netzladefensters in kWh. Dieser Verbrauch wird von der PV-Prognose abgezogen. Bleibt das Feld leer oder ist der Wert ungültig, wird 0 kWh angenommen.
+
+- **Eingabetyp:** Entität (sensor)
+- **Standard:** Leer / optional
+
+#### `grid_charge_forecast_safety_percent`: Sicherheitsabschlag auf PV-Prognose
+
+Prozentsatz, der von dem prognostizierten PV-Überschuss abgezogen wird. 30 Prozent bedeutet, dass nur 70 Prozent des erwarteten Überschusses auf die noch benötigte Batterieladung angerechnet werden. Ein höherer Wert startet die Netzladung früher und erhöht die Wahrscheinlichkeit, den Ziel-SOC zu erreichen.
+
+- **Eingabetyp:** Zahl (0 bis 100, Schritt 5 %)
+- **Standard:** 30
+
+#### `grid_charge_min_grid_energy_kwh`: Mindestbedarf für Netzladung
+
+Netzladung startet nur, wenn nach Berücksichtigung der sicheren PV-Prognose noch mindestens diese Energiemenge aus dem Netz benötigt wird. Damit werden sehr kurze Netzladevorgänge vermieden.
+
+- **Eingabetyp:** Zahl (0 bis 2, Schritt 0.1 kWh)
+- **Standard:** 0.2
 
 ### Zähler-Einrichtung
 
@@ -224,7 +254,7 @@ Dieses Formular nur ausfüllen, wenn als Zählertyp Shelly Pro 3EM ausgewählt i
 
 Wählen Sie das Shelly Pro 3EM Zählergerät.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 ### EcoTracker-Zähler
@@ -235,7 +265,7 @@ Dieses Formular nur ausfüllen, wenn als Zählertyp EcoTracker ausgewählt ist.
 
 Wählen Sie das EcoTracker-Zählergerät.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 ### BitShake-/Tasmota-Zähler
@@ -246,7 +276,7 @@ Dieses Formular nur ausfüllen, wenn als Zählertyp BitShake / Tasmota ausgewäh
 
 Wählen Sie das BitShake- oder Tasmota-Zählergerät.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 ### Shelly-3EM-Zähler
@@ -257,21 +287,21 @@ Dieses Formular nur ausfüllen, wenn als Zählertyp Shelly 3EM ausgewählt ist. 
 
 Wählen Sie das HA-Gerät für Phase A / L1.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 #### `meter_l2_device`: Shelly 3EM Phase B / L2 Gerät
 
 Wählen Sie das HA-Gerät für Phase B / L2.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 #### `meter_l3_device`: Shelly 3EM Phase C / L3 Gerät
 
 Wählen Sie das HA-Gerät für Phase C / L3.
 
-- **Eingabetyp:** Gerät (Home-Assistant-Geräteauswahl)
+- **Eingabetyp:** Gerät
 - **Standard:** Leer / optional
 
 ### Benutzerdefinierter Zähler
@@ -382,45 +412,63 @@ Für die automatische gerätebasierte Bindung leer lassen. Nur öffnen, wenn das
 
 #### `gs_number`: Entität für Sollwert Leistung Netzanschluss überschreiben
 
+
+
 - **Eingabetyp:** Entität (number)
 - **Standard:** Leer / optional
 
 #### `is_number`: Entität für Sollwert max. Wechselrichterleistung überschreiben
+
+
 
 - **Eingabetyp:** Entität (number)
 - **Standard:** Leer / optional
 
 #### `load_power_sensor`: Sensor für Systemleistung am Lastanschluss überschreiben
 
+
+
 - **Eingabetyp:** Entität (sensor)
 - **Standard:** Leer / optional
 
 #### `grid_port_power_sensor`: Sensor für Systemleistung am Netzanschluss überschreiben
+
+
 
 - **Eingabetyp:** Entität (sensor)
 - **Standard:** Leer / optional
 
 #### `pv_power_sensor`: Sensor für PV-Gesamteingangsleistung überschreiben
 
+
+
 - **Eingabetyp:** Entität (sensor)
 - **Standard:** Leer / optional
 
 #### `soc_sensor`: Sensor für System-Speicherlevel überschreiben
+
+
 
 - **Eingabetyp:** Entität (sensor)
 - **Standard:** Leer / optional
 
 #### `min_discharge_soc_number`: Number-Entität für System Entladegrenze überschreiben
 
+
+
 - **Eingabetyp:** Entität (number)
 - **Standard:** Leer / optional
 
 #### `max_charge_soc_number`: Number-Entität für System Ladegrenze überschreiben
 
+
+
 - **Eingabetyp:** Entität (number)
 - **Standard:** Leer / optional
 
 ### Erweiterte Zähler-Vorzeichen- und Einheitseinstellungen
+
+
 
 #### `meter_sign_mode`: Vorzeichenkonvention des Zählers
 
@@ -438,11 +486,13 @@ Automatisch verwendet die Vorgabe des ausgewählten Zählertyps. Wählen Sie ein
 
 ### Erweiterte Steuerungseinstellungen
 
+
+
 #### `target_grid_power_w`: Ziel-Netzleistung
 
 Nulleinspeisung verwendet 0 W. Positive Werte halten bewusst eine kleine Einspeisung; negative Werte halten bewusst einen kleinen Bezug.
 
-- **Eingabetyp:** Zahl (-200 bis 200, Schritt 1, W)
+- **Eingabetyp:** Zahl (-200 bis 200, Schritt 1 W)
 - **Standard:** 0
 
 #### `target_grid_power_entity`: Optionaler Helper für Ziel-Netzleistung
@@ -456,83 +506,105 @@ Optionaler input_number-Helper für einen dynamischen Zielwert. Ist kein Helper 
 
 Minimal erlaubter Sollwert Leistung Netzanschluss. Negative Werte erlauben Netzbezug bzw. Laden, um Überschussleistung aufzunehmen.
 
-- **Eingabetyp:** Zahl (-2400 bis 0, Schritt 1, W)
+- **Eingabetyp:** Zahl (-2400 bis 0, Schritt 1 W)
 - **Standard:** -2400
 
 #### `gs_resolution_w`: Schreibauflösung Sollwert Leistung Netzanschluss
 
-- **Eingabetyp:** Zahl (1 bis 50, Schritt 1, W)
+
+
+- **Eingabetyp:** Zahl (1 bis 50, Schritt 1 W)
 - **Standard:** 1
 
 #### `gain_percent`: Korrekturverstärkung
 
-- **Eingabetyp:** Zahl (20 bis 150, Schritt 5, %)
+
+
+- **Eingabetyp:** Zahl (20 bis 150, Schritt 5 %)
 - **Standard:** 100
 
 #### `small_error_w`: Schwelle für kleinen Fehler
 
-- **Eingabetyp:** Zahl (1 bis 300, Schritt 1, W)
+
+
+- **Eingabetyp:** Zahl (1 bis 300, Schritt 1 W)
 - **Standard:** 30
 
 #### `large_error_w`: Schwelle für großen Fehler
 
-- **Eingabetyp:** Zahl (10 bis 1000, Schritt 10, W)
+
+
+- **Eingabetyp:** Zahl (10 bis 1000, Schritt 10 W)
 - **Standard:** 150
 
 #### `slow_interval_s`: Langsames Schreibintervall
 
-- **Eingabetyp:** Zahl (1 bis 120, Schritt 0.5, s)
+
+
+- **Eingabetyp:** Zahl (1 bis 120, Schritt 0.5 s)
 - **Standard:** 7
 
 #### `medium_interval_s`: Mittleres Schreibintervall
 
-- **Eingabetyp:** Zahl (0.5 bis 60, Schritt 0.5, s)
+
+
+- **Eingabetyp:** Zahl (0.5 bis 60, Schritt 0.5 s)
 - **Standard:** 2.5
 
 #### `fast_interval_s`: Schnelles Schreibintervall
 
-- **Eingabetyp:** Zahl (1 bis 20, Schritt 1, s)
+
+
+- **Eingabetyp:** Zahl (1 bis 20, Schritt 1 s)
 - **Standard:** 1
 
 #### `gs_feedback_settle_s`: Einschwingzeit der Regelungsrückmeldung
 
 Mindestzeit nach dem Schreiben des Sollwerts Leistung Netzanschluss oder des Sollwerts max. Wechselrichterleistung bis zum nächsten Schreibvorgang. Die Automatisierung wartet außerdem auf neue Netzanschluss- und Zählerwerte nach der letzten Änderung. Der Standardwert passt zur beobachteten SunEnergyXT-Rückmeldezeit und reduziert Schwingen bei Änderungen externer Geräte.
 
-- **Eingabetyp:** Zahl (1 bis 30, Schritt 1, s)
+- **Eingabetyp:** Zahl (1 bis 30, Schritt 1 s)
 - **Standard:** 5
 
 #### `meter_stabilization_delay_s`: Zusätzliche Wartezeit bei verzögerter Zählerrückmeldung
 
 Optionale zusätzliche Wartezeit nach einem GS- oder IS-Schreibvorgang, bevor erneut geregelt wird. Bei Zählern ohne merkliche Verzögerung 0 s beibehalten. Den Wert etwas größer als die gemessene inhaltliche Verzögerung einstellen, wenn der Zähler in Home Assistant zwar neue Zeitstempel meldet, der Leistungswert aber noch den Zustand vor dem letzten Schreibvorgang zeigt. Ein zu kleiner Wert kann Schwingen zulassen; ein zu großer Wert verlangsamt die Reaktion auf echte Laständerungen.
 
-- **Eingabetyp:** Zahl (0 bis 60, Schritt 1, s)
+- **Eingabetyp:** Zahl (0 bis 60, Schritt 1 s)
 - **Standard:** 0
 
 #### `small_max_step_w`: Maximale Anpassung bei kleinem Fehler
 
-- **Eingabetyp:** Zahl (1 bis 300, Schritt 1, W)
+
+
+- **Eingabetyp:** Zahl (1 bis 300, Schritt 1 W)
 - **Standard:** 20
 
 #### `medium_max_step_w`: Maximale Anpassung bei mittlerem Fehler
 
-- **Eingabetyp:** Zahl (10 bis 1000, Schritt 10, W)
+
+
+- **Eingabetyp:** Zahl (10 bis 1000, Schritt 10 W)
 - **Standard:** 120
 
 #### `fast_max_step_w`: Maximale Anpassung bei großem Fehler
 
-- **Eingabetyp:** Zahl (50 bis 2400, Schritt 10, W)
+
+
+- **Eingabetyp:** Zahl (50 bis 2400, Schritt 10 W)
 - **Standard:** 450
 
 #### `max_meter_age_s`: Maximales Alter des Zählerwerts
 
 Maximales Alter des externen Zählerwerts, bevor die aktuelle Regelrunde pausiert und den aktuellen GS-Wert beibehält. Ein ausdrücklich ungültiger kritischer Eingang muss mindestens ebenso lange ungültig bleiben, bevor ein GS ungleich 0 einmalig auf 0 W zurückgesetzt wird.
 
-- **Eingabetyp:** Zahl (2 bis 300, Schritt 1, s)
+- **Eingabetyp:** Zahl (2 bis 300, Schritt 1 s)
 - **Standard:** 30
 
 #### `is_resolution_w`: Schreibauflösung Sollwert max. Wechselrichterleistung
 
-- **Eingabetyp:** Zahl (1 bis 100, Schritt 1, W)
+
+
+- **Eingabetyp:** Zahl (1 bis 100, Schritt 1 W)
 - **Standard:** 10
 
 #### `diagnostic_log_level`: Diagnose-Log-Stufe
@@ -540,13 +612,13 @@ Maximales Alter des externen Zählerwerts, bevor die aktuelle Regelrunde pausier
 Aus schreibt keine Diagnose-Logs. Ereignisse protokolliert SOC-Haltewechsel. Schreibvorgänge ergänzt Setpoint-Schreibvorgänge. Entscheidungen ergänzt periodische Regelentscheidungen. Debug schreibt Entscheidungs-Logs alle 5 Sekunden.
 
 - **Eingabetyp:** Auswahl: Aus, Ereignisse, Schreibvorgänge, Entscheidungen, Debug
-- **Standard:** Deaktiviert
+- **Standard:** False
 
 #### `diagnostic_log_interval_s`: Intervall für Entscheidungs-Logs
 
 Mindestintervall für periodische Entscheidungs-Logs. Debug- Entscheidungs-Logs verwenden ein festes Intervall von 5 s. Ereignis- und Schreib-Logs werden nur ausgegeben, wenn die jeweilige Aktion tatsächlich passiert.
 
-- **Eingabetyp:** Zahl (10 bis 3600, Schritt 10, s)
+- **Eingabetyp:** Zahl (10 bis 3600, Schritt 10 s)
 - **Standard:** 60
 
 #### `full_charge_hold_helper`: Optionaler Helper für Haltezustand volle Batterie
@@ -563,26 +635,10 @@ Optional. Leer lassen, außer die Automatisierung soll den Niedrig-SOC- Haltezus
 - **Eingabetyp:** Entität (input_boolean)
 - **Standard:** Leer / optional
 
-## Empfohlene Grundeinstellungen
-
-```text
-Ziel-Netzleistung: 0 W
-Sperrschwelle PV: 1000 W
-Freigabeschwelle PV: 700 W
-Netzladeleistung XT500 Pro: maximal 2400 W
-Diagnose-Log-Stufe für Inbetriebnahme: Entscheidungen oder Debug
-```
-
-Passe Leistungsgrenzen, SOC-Grenzen, Batteriekapazität und Zeitfenster immer an das konkrete Gerät und die lokale Installation an.
-
 ## Diagnose
 
-Über die Diagnose-Log-Stufe können Ereignisse, Schreibvorgänge, Entscheidungen oder Debug-Ausgaben aktiviert werden. Die Entscheidungsprotokolle enthalten zusätzlich den PV-Sperrzustand sowie Sperr- und Freigabeschwelle.
-
-## Wichtiger Hinweis zur PV-Funktion
-
-Diese Version berücksichtigt die **aktuelle PV-Leistung**. Sie enthält keine Vorhersage zukünftiger PV-Erzeugung und benötigt daher keine Forecast-Integration.
+Die Entscheidungs-Logs enthalten den aktuellen PV-Sperrzustand, beide Hystereseschwellen, Forecast-Gültigkeit, prognostizierte PV-Energie, erwarteten Verbrauch, sicheren Überschuss und verbleibenden Netzenergiebedarf.
 
 ## Lizenz
 
-Siehe Datei `LICENSE` im Repository.
+Siehe `LICENSE`.
