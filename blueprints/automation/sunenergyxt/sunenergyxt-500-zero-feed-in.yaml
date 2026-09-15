@@ -112,11 +112,7 @@ blueprint:
       description: >
         Lädt den Speicher während frei definierbarer Zeitfenster aus dem Netz.
         Die normale Nulleinspeisungsregelung wird währenddessen temporär
-        übersteuert. Optional kann die Netzladung bei ausreichender aktueller
-        PV-Leistung gesperrt werden. Eine getrennte Sperr- und Freigabeschwelle
-        bildet eine Hysterese und verhindert häufiges Umschalten bei wechselnder
-        Bewölkung. Für eine echte zustandsbehaftete Hysterese kann optional ein
-        input_boolean-Helper ausgewählt werden.
+        übersteuert.
       input:
         grid_charge_enable:
           name: Netzladung aktivieren
@@ -278,44 +274,36 @@ blueprint:
               unit_of_measurement: min
               mode: box
 
-
-
     pv_priority_info:
       name: PV-Vorrang und Hysterese
       icon: mdi:solar-power
       collapsed: true
       description: >
-        Diese optionale Funktion verhindert eine unnötige Netzladung, wenn
-        aktuell genügend PV-Leistung vorhanden ist. Die Sperrschwelle schaltet
-        die Netzladung aus; die niedrigere Freigabeschwelle erlaubt sie wieder.
-        Der Abstand zwischen beiden Werten bildet die Hysterese und verhindert
-        häufiges Umschalten bei wechselnder Bewölkung.
+        Verhindert unnötige Netzladung bei ausreichender aktueller PV-Leistung.
+        Sperr- und Freigabeschwelle bilden eine Hysterese. Für eine echte
+        zustandsbehaftete Hysterese einen input_boolean-Helper unter
+        Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen →
+        Umschalter anlegen und unten auswählen. Ohne Helper wird der Bereich
+        zwischen beiden Schwellen vorsichtshalber als gesperrt behandelt.
 
-        Für eine echte zustandsbehaftete Hysterese wird ein input_boolean-Helper
-        empfohlen. Erstellen Sie ihn unter Einstellungen → Geräte & Dienste →
-        Helfer → Helfer erstellen → Umschalter. Empfohlener Name:
-        SunEnergyXT PV-Netzladesperre. Wählen Sie den erstellten Helper danach
-        im Feld "Optionaler Helper für PV-Netzladesperre" aus. Ohne Helper wird
-        der Bereich zwischen Freigabe- und Sperrschwelle vorsichtshalber als
-        gesperrt behandelt.
+        Optional kann eine Forecast-Entität mit der erwarteten verbleibenden
+        PV-Energie bis zum Ende des Netzladefensters berücksichtigt werden.
+        Davon wird ein optional erwarteter Hausverbrauch abgezogen und ein
+        Sicherheitsabschlag angewendet. Fehlt ein gültiger Forecast-Wert,
+        verwendet der Blueprint automatisch die bisherige Berechnung ohne
+        Prognose.
       input:
         grid_charge_pv_priority_enable:
           name: PV-Vorrang für Netzladung aktivieren
-          description: >
-            Aktiviert die Sperre der manuellen Netzladung bei ausreichender
-            aktueller PV-Leistung. Ist diese Option deaktiviert, beeinflussen
-            die beiden PV-Schwellenwerte die Netzladung nicht.
+          description: Aktiviert die Sperre der manuellen Netzladung bei ausreichender aktueller PV-Leistung.
           default: true
           selector:
             boolean:
-
         grid_charge_pv_block_threshold_w:
           name: PV-Leistung für Netzlade-Sperre
           description: >
-            Erreicht oder überschreitet die aktuelle PV-Leistung diesen Wert,
-            wird die manuelle Netzladung gesperrt und die PV erhält Vorrang.
-            Die Sperre bleibt aktiv, bis die PV-Leistung unter die separate
-            Freigabeschwelle fällt.
+            Ab diesem Wert wird die Netzladung gesperrt. Die Sperre bleibt aktiv,
+            bis die PV-Leistung unter die Freigabeschwelle fällt.
           default: 1000
           selector:
             number:
@@ -324,15 +312,11 @@ blueprint:
               step: 50
               unit_of_measurement: W
               mode: slider
-
         grid_charge_pv_release_threshold_w:
           name: PV-Leistung für Freigabe der Netzladung
           description: >
-            Fällt die aktuelle PV-Leistung unter diesen Wert, darf die manuelle
-            Netzladung wieder starten. Dieser Wert sollte kleiner als die
-            Sperrschwelle sein. Der Abstand zwischen beiden Werten bildet die
-            Hysterese und verhindert wiederholtes Ein- und Ausschalten bei
-            schwankender PV-Leistung.
+            Unter diesem Wert darf die Netzladung wieder starten. Dieser Wert
+            sollte kleiner als die Sperrschwelle sein.
           default: 700
           selector:
             number:
@@ -341,18 +325,85 @@ blueprint:
               step: 50
               unit_of_measurement: W
               mode: slider
-
         grid_charge_pv_block_helper:
           name: Optionaler Helper für PV-Netzladesperre
           description: >
-            Optionaler input_boolean-Helper, der den Sperrzustand innerhalb der
-            Hysterese und über Automationsläufe hinweg speichert. Empfohlen für
-            eine exakte Hysterese. Ohne Helper wird der Zwischenbereich zwischen
-            Freigabe- und Sperrschwelle vorsichtshalber als gesperrt behandelt.
+            Optionaler input_boolean-Helper für eine echte Hysterese. Erstellen
+            unter Einstellungen → Geräte & Dienste → Helfer → Helfer erstellen
+            → Umschalter. Empfohlener Name: SunEnergyXT PV-Netzladesperre.
           default: ""
           selector:
             entity:
               domain: input_boolean
+
+        grid_charge_forecast_enable:
+          name: PV-Prognose berücksichtigen
+          description: >
+            Aktiviert die prognosebasierte Reduzierung der benötigten
+            Netzladung. Dafür muss unten eine Sensorentität ausgewählt werden,
+            deren Zustand die noch erwartete PV-Energie bis zum Ende des
+            aktuellen Netzladefensters in kWh enthält. Ist der Sensor leer,
+            unknown oder unavailable, wird ohne Forecast weitergerechnet.
+          default: false
+          selector:
+            boolean:
+
+        grid_charge_forecast_energy_entity:
+          name: Verbleibende PV-Prognoseenergie
+          description: >
+            Sensor mit der ab jetzt bis zum Ende des Netzladefensters erwarteten
+            PV-Energie in kWh. Nicht direkt einen Tagesgesamtwert verwenden,
+            wenn dieser bereits erzeugte Energie enthält, da die Prognose sonst
+            zu hoch angerechnet wird. Geeignet ist ein Forecast- oder
+            Template-Sensor, der den verbleibenden Zeitraum abbildet.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+
+        grid_charge_forecast_load_energy_entity:
+          name: Erwarteter Hausverbrauch bis Ladeende
+          description: >
+            Optionaler Sensor mit dem erwarteten Hausverbrauch von jetzt bis
+            zum Ende des Netzladefensters in kWh. Dieser Verbrauch wird von der
+            PV-Prognose abgezogen. Bleibt das Feld leer oder ist der Wert
+            ungültig, wird 0 kWh angenommen.
+          default: ""
+          selector:
+            entity:
+              domain: sensor
+
+        grid_charge_forecast_safety_percent:
+          name: Sicherheitsabschlag auf PV-Prognose
+          description: >
+            Prozentsatz, der von dem prognostizierten PV-Überschuss abgezogen
+            wird. 30 Prozent bedeutet, dass nur 70 Prozent des erwarteten
+            Überschusses auf die noch benötigte Batterieladung angerechnet
+            werden. Ein höherer Wert startet die Netzladung früher und erhöht
+            die Wahrscheinlichkeit, den Ziel-SOC zu erreichen.
+          default: 30
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+
+        grid_charge_min_grid_energy_kwh:
+          name: Mindestbedarf für Netzladung
+          description: >
+            Netzladung startet nur, wenn nach Berücksichtigung der sicheren
+            PV-Prognose noch mindestens diese Energiemenge aus dem Netz benötigt
+            wird. Damit werden sehr kurze Netzladevorgänge vermieden.
+          default: 0.2
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.1
+              unit_of_measurement: kWh
+              mode: slider
 
     meter_setup:
       name: Zähler-Einrichtung
@@ -1022,6 +1073,11 @@ variables:
   grid_charge_pv_block_threshold_w: !input grid_charge_pv_block_threshold_w
   grid_charge_pv_release_threshold_w: !input grid_charge_pv_release_threshold_w
   grid_charge_pv_block_helper: !input grid_charge_pv_block_helper
+  grid_charge_forecast_enable: !input grid_charge_forecast_enable
+  grid_charge_forecast_energy_entity: !input grid_charge_forecast_energy_entity
+  grid_charge_forecast_load_energy_entity: !input grid_charge_forecast_load_energy_entity
+  grid_charge_forecast_safety_percent: !input grid_charge_forecast_safety_percent
+  grid_charge_min_grid_energy_kwh: !input grid_charge_min_grid_energy_kwh
   aio_device: !input aio_device
   pro3em_meter_device: !input pro3em_meter_device
   ecotracker_meter_device: !input ecotracker_meter_device
@@ -2000,12 +2056,47 @@ action:
         {% set capacity = grid_charge_battery_capacity_kwh | float(10) %}
         {% set missing_soc = grid_charge_missing_soc | float(0) %}
         {{ capacity * missing_soc / 100 }}
+      grid_charge_forecast_entity_valid: >-
+        {% set entity = grid_charge_forecast_energy_entity | string | trim %}
+        {% set value = states(entity) if entity else 'unknown' %}
+        {{ grid_charge_forecast_enable | bool(false)
+           and entity | length > 0
+           and value not in ['unknown', 'unavailable', 'none', '']
+           and is_number(value) }}
+      grid_charge_forecast_pv_kwh: >-
+        {% if grid_charge_forecast_entity_valid | bool(false) %}
+          {{ [states(grid_charge_forecast_energy_entity | trim) | float(0), 0] | max }}
+        {% else %}
+          {{ 0 }}
+        {% endif %}
+      grid_charge_forecast_load_kwh: >-
+        {% set entity = grid_charge_forecast_load_energy_entity | string | trim %}
+        {% set value = states(entity) if entity else 'unknown' %}
+        {% if entity | length > 0
+              and value not in ['unknown', 'unavailable', 'none', '']
+              and is_number(value) %}
+          {{ [value | float(0), 0] | max }}
+        {% else %}
+          {{ 0 }}
+        {% endif %}
+      grid_charge_forecast_surplus_raw_kwh: >-
+        {{ [(grid_charge_forecast_pv_kwh | float(0))
+             - (grid_charge_forecast_load_kwh | float(0)), 0] | max }}
+      grid_charge_forecast_surplus_safe_kwh: >-
+        {% set safety = [[grid_charge_forecast_safety_percent | float(30), 0] | max, 100] | min %}
+        {{ (grid_charge_forecast_surplus_raw_kwh | float(0)) * (1 - safety / 100) }}
+      grid_charge_remaining_grid_kwh: >-
+        {% set missing = grid_charge_missing_kwh | float(0) %}
+        {% set forecast = grid_charge_forecast_surplus_safe_kwh | float(0) %}
+        {{ [missing - forecast, 0] | max }}
       grid_charge_required_minutes: >-
-        {% set missing_kwh = grid_charge_missing_kwh | float(0) %}
+        {% set required_kwh = grid_charge_remaining_grid_kwh | float(0) %}
         {% set power_w = grid_charge_power_w | float(2400) %}
         {% set efficiency = grid_charge_efficiency | float(90) / 100 %}
-        {% if power_w > 0 and efficiency > 0 %}
-          {{ (missing_kwh / (power_w / 1000) / efficiency) * 60 }}
+        {% if required_kwh <= (grid_charge_min_grid_energy_kwh | float(0.2)) %}
+          {{ 0 }}
+        {% elif power_w > 0 and efficiency > 0 %}
+          {{ (required_kwh / (power_w / 1000) / efficiency) * 60 }}
         {% else %}
           {{ 999999 }}
         {% endif %}
@@ -2065,28 +2156,18 @@ action:
       grid_charge_pv_block_helper_available: >-
         {{ grid_charge_pv_block_helper | string | trim | length > 0 }}
       grid_charge_pv_block_helper_state: >-
-        {{ grid_charge_pv_block_helper_available | bool(false)
-           and is_state(grid_charge_pv_block_helper | trim, 'on') }}
+        {{ grid_charge_pv_block_helper_available | bool(false) and is_state(grid_charge_pv_block_helper | trim, 'on') }}
       grid_charge_pv_effective_release_threshold_w: >-
-        {% set block = grid_charge_pv_block_threshold_w | float(1000) %}
-        {% set release = grid_charge_pv_release_threshold_w | float(700) %}
-        {{ [release, block] | min }}
+        {{ [grid_charge_pv_release_threshold_w | float(700), grid_charge_pv_block_threshold_w | float(1000)] | min }}
       grid_charge_pv_blocked: >-
-        {% set enabled = grid_charge_pv_priority_enable | bool(false) %}
         {% set pv = pv_power_w | float(0) %}
         {% set block = grid_charge_pv_block_threshold_w | float(1000) %}
         {% set release = grid_charge_pv_effective_release_threshold_w | float(700) %}
-        {% if not enabled %}
-          {{ false }}
-        {% elif pv >= block %}
-          {{ true }}
-        {% elif pv < release %}
-          {{ false }}
-        {% elif grid_charge_pv_block_helper_available | bool(false) %}
-          {{ grid_charge_pv_block_helper_state | bool(false) }}
-        {% else %}
-          {{ true }}
-        {% endif %}
+        {% if not (grid_charge_pv_priority_enable | bool(false)) %}false
+        {% elif pv >= block %}true
+        {% elif pv < release %}false
+        {% elif grid_charge_pv_block_helper_available | bool(false) %}{{ grid_charge_pv_block_helper_state | bool(false) }}
+        {% else %}true{% endif %}
       grid_charge_active: >-
         {{
           grid_charge_enable | bool(false)
@@ -2094,6 +2175,8 @@ action:
           and grid_charge_day_match | bool(false)
           and grid_charge_time_match | bool(false)
           and (soc_value | float(0)) < (grid_charge_target_soc | float(100))
+          and (grid_charge_remaining_grid_kwh | float(0))
+              > (grid_charge_min_grid_energy_kwh | float(0.2))
           and grid_charge_deadline_reached | bool(false)
           and not (grid_charge_pv_blocked | bool(false))
         }}
@@ -2105,23 +2188,14 @@ action:
   - choose:
       - conditions:
           - condition: template
-            value_template: >-
-              {{ grid_charge_pv_block_helper_available | bool(false)
-                 and grid_charge_pv_priority_enable | bool(false)
-                 and grid_charge_pv_blocked | bool(false)
-                 and not (grid_charge_pv_block_helper_state | bool(false)) }}
+            value_template: "{{ grid_charge_pv_block_helper_available | bool(false) and grid_charge_pv_blocked | bool(false) and not (grid_charge_pv_block_helper_state | bool(false)) }}"
         sequence:
           - service: input_boolean.turn_on
             target:
               entity_id: "{{ grid_charge_pv_block_helper | trim }}"
       - conditions:
           - condition: template
-            value_template: >-
-              {{ grid_charge_pv_block_helper_available | bool(false)
-                 and grid_charge_pv_block_helper_state | bool(false)
-                 and (not (grid_charge_pv_priority_enable | bool(false))
-                      or (pv_power_w | float(0)) <
-                         (grid_charge_pv_effective_release_threshold_w | float(700))) }}
+            value_template: "{{ grid_charge_pv_block_helper_available | bool(false) and grid_charge_pv_block_helper_state | bool(false) and (not (grid_charge_pv_priority_enable | bool(false)) or (pv_power_w | float(0)) < (grid_charge_pv_effective_release_threshold_w | float(700))) }}"
         sequence:
           - service: input_boolean.turn_off
             target:
@@ -2593,7 +2667,7 @@ action:
                     data:
                       level: info
                       message: >-
-                        SunEnergyXT zero feed-in | event=write_is | old={{ current_is_w | float(0) | round(0) }}W | new={{ next_is_w | float(0) | round(0) }}W | target={{ target_is_w | float(0) | round(0) }}W | meter={{ normalized_grid_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | pv_block={{ grid_charge_pv_blocked | bool(false) }} | pv_block_at={{ grid_charge_pv_block_threshold_w | float(1000) | round(0) }}W | pv_release_below={{ grid_charge_pv_effective_release_threshold_w | float(700) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }}
+                        SunEnergyXT zero feed-in | event=write_is | old={{ current_is_w | float(0) | round(0) }}W | new={{ next_is_w | float(0) | round(0) }}W | target={{ target_is_w | float(0) | round(0) }}W | meter={{ normalized_grid_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }}
           - service: number.set_value
             continue_on_error: true
             target:
@@ -2616,7 +2690,7 @@ action:
                     data:
                       level: info
                       message: >-
-                        SunEnergyXT zero feed-in | event=write_gs | old={{ current_gs_w | float(0) | round(0) }}W | new={{ next_gs_w | float(0) | round(0) }}W | target={{ target_gs_w | float(0) | round(0) }}W | meter={{ normalized_grid_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | pv_block={{ grid_charge_pv_blocked | bool(false) }} | pv_block_at={{ grid_charge_pv_block_threshold_w | float(1000) | round(0) }}W | pv_release_below={{ grid_charge_pv_effective_release_threshold_w | float(700) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }}
+                        SunEnergyXT zero feed-in | event=write_gs | old={{ current_gs_w | float(0) | round(0) }}W | new={{ next_gs_w | float(0) | round(0) }}W | target={{ target_gs_w | float(0) | round(0) }}W | meter={{ normalized_grid_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }}
           - service: number.set_value
             target:
               entity_id: "{{ gs_entity | trim }}"
@@ -2632,4 +2706,4 @@ action:
             data:
               level: info
               message: >-
-                SunEnergyXT zero feed-in | event=decision | grid_charge={{ grid_charge_active | bool(false) }} | meter={{ normalized_grid_w | float(0) | round(0) }}W | target_grid={{ target_grid_power_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | pv_block={{ grid_charge_pv_blocked | bool(false) }} | pv_block_at={{ grid_charge_pv_block_threshold_w | float(1000) | round(0) }}W | pv_release_below={{ grid_charge_pv_effective_release_threshold_w | float(700) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | charge_target={{ grid_charge_target_soc | float(100) | round(0) }}% | charge_missing={{ [((grid_charge_target_soc | float(100)) - (soc_value | float(0))), 0] | max | round(1) }}% | charge_required={{ grid_charge_remaining_minutes | float(0) | round(0) }}min | charge_remaining={{ grid_charge_remaining_window_minutes | float(0) | round(0) }}min | charge_deadline={{ grid_charge_deadline_reached | bool(false) }} | charge_power={{ grid_charge_power_w | float(0) | round(0) }}W | gs={{ current_gs_w | float(0) | round(0) }}W->{{ next_gs_w | float(0) | round(0) }}W | is={{ current_is_w | float(0) | round(0) }}W->{{ next_is_w | float(0) | round(0) }}W | write_gs={{ should_write_gs | bool(false) }} | write_is={{ should_write_is | bool(false) }} | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }} | bypass={{ bypass_only | bool(false) }}
+                SunEnergyXT zero feed-in | event=decision | grid_charge={{ grid_charge_active | bool(false) }} | meter={{ normalized_grid_w | float(0) | round(0) }}W | target_grid={{ target_grid_power_w | float(0) | round(0) }}W | gp={{ gp_power_w | float(0) | round(0) }}W | lp={{ load_power_w | float(0) | round(0) }}W | pv={{ pv_power_w | float(0) | round(0) }}W | soc={{ soc_value | float(0) | round(1) }}% | charge_target={{ grid_charge_target_soc | float(100) | round(0) }}% | charge_missing={{ [((grid_charge_target_soc | float(100)) - (soc_value | float(0))), 0] | max | round(1) }}% | charge_required={{ grid_charge_remaining_minutes | float(0) | round(0) }}min | charge_remaining={{ grid_charge_remaining_window_minutes | float(0) | round(0) }}min | charge_deadline={{ grid_charge_deadline_reached | bool(false) }} | charge_power={{ grid_charge_power_w | float(0) | round(0) }}W | gs={{ current_gs_w | float(0) | round(0) }}W->{{ next_gs_w | float(0) | round(0) }}W | is={{ current_is_w | float(0) | round(0) }}W->{{ next_is_w | float(0) | round(0) }}W | write_gs={{ should_write_gs | bool(false) }} | write_is={{ should_write_is | bool(false) }} | full_hold={{ full_hold_state | bool(false) }} | low_hold={{ low_hold_state | bool(false) }} | bypass={{ bypass_only | bool(false) }}
