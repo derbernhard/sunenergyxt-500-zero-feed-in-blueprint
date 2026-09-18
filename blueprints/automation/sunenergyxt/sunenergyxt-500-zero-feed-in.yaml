@@ -1005,7 +1005,7 @@ max_exceeded: silent
 
 trigger:
   - platform: time_pattern
-    seconds: "/1"
+    seconds: "/2"
 
 variables:
   grid_charge_enable: !input grid_charge_enable
@@ -2140,7 +2140,8 @@ action:
       - conditions:
           - condition: template
             value_template: >-
-              {{ ((states(min_soc_entity | trim) | float(0)) - (min_discharge_soc | float(10))) | abs >= 1 }}
+              {{ ((states(min_soc_entity | trim) | float(0)) - (min_discharge_soc | float(10))) | abs >= 1
+                 and (seconds_since_control_change | float(999)) >= (control_feedback_interval_s | float(8)) }}
         sequence:
           - service: number.set_value
             continue_on_error: true
@@ -2153,7 +2154,8 @@ action:
       - conditions:
           - condition: template
             value_template: >-
-              {{ ((states(max_soc_entity | trim) | float(0)) - (max_charge_soc | float(100))) | abs >= 1 }}
+              {{ ((states(max_soc_entity | trim) | float(0)) - (max_charge_soc | float(100))) | abs >= 1
+                 and (seconds_since_control_change | float(999)) >= (control_feedback_interval_s | float(8)) }}
         sequence:
           - service: number.set_value
             continue_on_error: true
