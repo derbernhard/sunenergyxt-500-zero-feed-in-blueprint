@@ -1988,12 +1988,21 @@ action:
         {% else %}
           {{ current >= start or current < end }}
         {% endif %}
-      grid_charge_remaining_window_minutes: >-
-        {% set end = today_at(grid_charge_end) %}
+      grid_charge_window_end_ts: >-
+        {% set start = today_at(grid_charge_start) %}
+        {% set base_end = today_at(grid_charge_end) %}
         {% set current = now() %}
-        {{ [((as_timestamp(end) - as_timestamp(current)) / 60), 0] | max }}
+        {% if base_end <= start %}
+          {{ (as_timestamp(base_end) + 86400) | int(0) }}
+        {% elif as_timestamp(base_end) <= as_timestamp(current) %}
+          {{ (as_timestamp(base_end) + 86400) | int(0) }}
+        {% else %}
+          {{ as_timestamp(base_end) | int(0) }}
+        {% endif %}
+      grid_charge_remaining_window_minutes: >-
+        {{ [((grid_charge_window_end_ts | float(0)) - as_timestamp(now())) / 60, 0] | max }}
       grid_charge_missing_soc: >-
-        {% set target = grid_charge_target_soc | float(100) %}
+        {% set target = effective_grid_charge_target_soc | float(100) %}
         {% set soc = soc_value | float(0) %}
         {{ [target - soc, 0] | max }}
       grid_charge_missing_kwh: >-
@@ -2093,12 +2102,14 @@ action:
           and grid_charge_month_match | bool(false)
           and grid_charge_day_match | bool(false)
           and grid_charge_time_match | bool(false)
-          and (soc_value | float(0)) < (grid_charge_target_soc | float(100))
+          and (soc_value | float(0)) < (effective_grid_charge_target_soc | float(100))
           and grid_charge_deadline_reached | bool(false)
           and not (grid_charge_pv_blocked | bool(false))
         }}
       effective_min_discharge_soc: >-
         {{ min_discharge_soc | float(10) }}
+      effective_grid_charge_target_soc: >-
+        {{ [grid_charge_target_soc | float(100), max_charge_soc | float(100)] | min }}
       effective_max_charge_soc: >-
         {{ max_charge_soc | float(100) }}
 
